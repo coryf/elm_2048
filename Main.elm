@@ -27,6 +27,10 @@ main =
 -- MODEL
 
 
+type alias Cell =
+    ( Point, Int )
+
+
 type alias Cells =
     Dict Point Int
 
@@ -38,11 +42,14 @@ type alias Point =
 type alias Board =
     { size : Int
     , cells : Cells
+    , slideAnimations : List ( Point, Point, Int )
+    , mergeAnimations : List ( Point, Point, Int )
     }
 
 
 type alias Model =
     { board : Board
+    , gameOver : Bool
     , randomSeed : Random.Seed
     }
 
@@ -66,12 +73,15 @@ initBoard : Int -> Board
 initBoard size =
     { size = size
     , cells = initCells size
+    , slideAnimations = []
+    , mergeAnimations = []
     }
 
 
 initModel : Model
 initModel =
-    { board = initBoard 4
+    { board = initBoard 3
+    , gameOver = False
     , randomSeed = Random.initialSeed 0
     }
         |> insertRandomCell
@@ -136,42 +146,21 @@ type SlideDirection
     | SlideDown
 
 
-slideCell : Cells -> SlideDirection -> Point -> Int -> Int
-slideCell cells direction ( x, y ) num =
-    if num == 0 then
-        case Dict.get ( x + 1, y ) cells of
-            Just n ->
-                n
-
-            Nothing ->
-                0
-    else
-        num
+tuple2Swap : ( a, b ) -> ( b, a )
+tuple2Swap ( a, b ) =
+    ( b, a )
 
 
-listChunk2 : a -> List a -> List ( a, a )
-listChunk2 default list =
-    case list of
-        [] ->
-            []
-
-        [ x ] ->
-            [ ( x, default ) ]
-
-        x1 :: x2 :: xs ->
-            ( x1, x2 ) :: (listChunk2 default xs)
-
-
-slideCellSlice : Board -> SlideDirection -> Int -> List ( Point, Int )
+slideCellSlice : Board -> SlideDirection -> Int -> List Cell
 slideCellSlice { cells, size } direction sliceIndex =
     let
         ( swapDimensions, sliceDimension, swapSlice ) =
             case direction of
                 SlideLeft ->
-                    ( \( x, y ) -> ( y, x ), Tuple.second, identity )
+                    ( tuple2Swap, Tuple.second, identity )
 
                 SlideRight ->
-                    ( \( x, y ) -> ( y, x ), Tuple.second, List.reverse )
+                    ( tuple2Swap, Tuple.second, List.reverse )
 
                 SlideUp ->
                     ( identity, Tuple.first, identity )
@@ -179,25 +168,47 @@ slideCellSlice { cells, size } direction sliceIndex =
                 SlideDown ->
                     ( identity, Tuple.first, List.reverse )
 
-        boardSlice : Cells -> List Int
+        boardSlice : Cells -> List Cell
         boardSlice cells =
             cells
                 |> Dict.filter (\p _ -> sliceDimension p == sliceIndex)
-                |> Dict.values
+                |> Dict.toList
                 |> swapSlice
 
-        cellSliceCompact : List Int -> List Int
+        cellSliceCompact : List Cell -> List Cell
         cellSliceCompact =
-            List.filter (\n -> n /= 0)
+            List.filter (\( _, n ) -> n /= 0)
 
-        cellSliceExpand : List Int -> List ( Point, Int )
+        cellSliceMerge : List Cell -> List Cell
+        cellSliceMerge slice =
+            slice
+                |> List.foldl
+                    (\( p, n ) ( acc, hop ) ->
+                        case acc of
+                            [] ->
+                                ( [ ( p, n ) ], False )
+
+                            ( pHead, nHead ) :: xs ->
+                                if hop || n /= nHead then
+                                    ( ( p, n ) :: ( pHead, nHead ) :: xs, False )
+                                else
+                                    ( ( p, n + n ) :: xs, True )
+                    )
+                    ( [], False )
+                |> Tuple.first
+                |> List.reverse
+
+        cellSliceExpand : List Cell -> List Cell
         cellSliceExpand slice =
             let
                 compactSize =
                     List.length slice
 
+                valueSlice =
+                    slice |> List.map Tuple.second
+
                 filledSlice =
-                    slice ++ List.repeat (size - compactSize) 0
+                    valueSlice ++ List.repeat (size - compactSize) 0
             in
                 filledSlice
                     |> swapSlice
@@ -205,47 +216,53 @@ slideCellSlice { cells, size } direction sliceIndex =
                         (\i n ->
                             ( swapDimensions ( sliceIndex, i ), n )
                         )
-
-        cellSliceAdd : List Int -> List Int
-        cellSliceAdd slice =
-            slice
-                |> List.foldl
-                    (\n ( acc, hop ) ->
-                        case acc of
-                            [] ->
-                                ( [ n ], False )
-
-                            x :: xs ->
-                                if hop || n /= x then
-                                    ( n :: x :: xs, False )
-                                else
-                                    ( (n + n) :: xs, True )
-                    )
-                    ( [], False )
-                |> Tuple.first
-                |> List.reverse
     in
         cells
             |> boardSlice
             |> cellSliceCompact
-            |> cellSliceAdd
+            |> cellSliceMerge
             |> cellSliceExpand
 
 
-slideCells : Model -> SlideDirection -> Model
-slideCells ({ board } as model) direction =
-    let
-        cells =
+slideCells : Board -> SlideDirection -> Board
+slideCells board direction =
+    { board
+        | cells =
             List.range 0 (board.size - 1)
                 |> List.map (slideCellSlice board direction)
                 |> List.concat
                 |> Dict.fromList
+    }
+
+
+canSlide : Board -> Bool
+canSlide board =
+    [ SlideLeft, SlideRight, SlideUp, SlideDown ]
+        |> List.map (slideCells board)
+        |> List.any (\board_ -> board_.cells /= board.cells)
+
+
+boardScore : Board -> Int
+boardScore board =
+    board.cells |> Dict.values |> List.sum
+
+
+handleSlide : Model -> SlideDirection -> Model
+handleSlide ({ board } as model) direction =
+    let
+        board_ =
+            slideCells board direction
+
+        slid =
+            board_.cells /= board.cells
+
+        model_ =
+            if slid then
+                { model | board = board_ } |> insertRandomCell
+            else
+                { model | board = board_ }
     in
-        if cells == board.cells then
-            model
-        else
-            { model | board = { board | cells = cells } }
-                |> insertRandomCell
+        { model_ | gameOver = not (canSlide model_.board) }
 
 
 init : ( Model, Cmd Msg )
@@ -265,28 +282,28 @@ handleKeyDown : Model -> Keyboard.KeyCode -> Model
 handleKeyDown model keyCode =
     case Char.fromCode keyCode of
         'H' ->
-            slideCells model SlideLeft
+            handleSlide model SlideLeft
 
         'A' ->
-            slideCells model SlideLeft
+            handleSlide model SlideLeft
 
         'L' ->
-            slideCells model SlideRight
+            handleSlide model SlideRight
 
         'D' ->
-            slideCells model SlideRight
+            handleSlide model SlideRight
 
         'K' ->
-            slideCells model SlideUp
+            handleSlide model SlideUp
 
         'W' ->
-            slideCells model SlideUp
+            handleSlide model SlideUp
 
         'J' ->
-            slideCells model SlideDown
+            handleSlide model SlideDown
 
         'S' ->
-            slideCells model SlideDown
+            handleSlide model SlideDown
 
         'R' ->
             initModel
@@ -317,7 +334,7 @@ subscriptions model =
 -- VIEW
 
 
-cellView : Int -> ( Point, Int ) -> List (Svg Msg)
+cellView : Int -> Cell -> List (Svg Msg)
 cellView size ( ( pX, pY ), num ) =
     let
         ( x_, y_ ) =
@@ -361,7 +378,16 @@ cellView size ( ( pX, pY ), num ) =
 
 backgroundView : Svg Msg
 backgroundView =
-    rect [ fill "#555", x "0", y "0", width "600", height "600" ] []
+    rect [ fill "#555", x "0", y "0", width "600", height "800" ] []
+
+
+headerView : Model -> Svg Msg
+headerView model =
+    let
+        score =
+            boardScore model.board |> toString
+    in
+        text_ [ x "100", y "100" ] [ text score ]
 
 
 boardView : Board -> Svg Msg
@@ -373,12 +399,24 @@ boardView { size, cells } =
         cellElems =
             cells |> Dict.toList |> List.map (cellView squareSize) |> List.concat
     in
-        g [] cellElems
+        g [ transform "translate(0 200)" ] cellElems
+
+
+gameOverView : Bool -> List (Svg Msg)
+gameOverView gameOver =
+    if gameOver then
+        [ rect [ fill "red", x "0", y "0", opacity "0.20", width "600", height "800" ] []
+        ]
+    else
+        []
 
 
 view : Model -> Html Msg
 view model =
-    svg [ width "100%", height "100%", viewBox "0 0 600 600" ]
-        [ backgroundView
-        , boardView model.board
-        ]
+    svg [ width "100%", height "100%", viewBox "0 0 600 800" ]
+        ([ backgroundView
+         , headerView model
+         , boardView model.board
+         ]
+            ++ gameOverView model.gameOver
+        )
