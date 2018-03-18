@@ -165,20 +165,26 @@ listChunk2 default list =
 slideCellSlice : Board -> SlideDirection -> Int -> List ( Point, Int )
 slideCellSlice { cells, size } direction sliceIndex =
     let
-        boardSlice : Cells -> List Int
-        boardSlice cells =
+        ( swapDimensions, sliceDimension, swapSlice ) =
             case direction of
                 SlideLeft ->
-                    cells |> Dict.filter (\( x, y ) _ -> y == sliceIndex) |> Dict.values
+                    ( \( x, y ) -> ( y, x ), Tuple.second, identity )
 
                 SlideRight ->
-                    cells |> Dict.filter (\( x, y ) _ -> y == sliceIndex) |> Dict.values |> List.reverse
+                    ( \( x, y ) -> ( y, x ), Tuple.second, List.reverse )
 
                 SlideUp ->
-                    cells |> Dict.filter (\( x, y ) _ -> x == sliceIndex) |> Dict.values
+                    ( identity, Tuple.first, identity )
 
                 SlideDown ->
-                    cells |> Dict.filter (\( x, y ) _ -> x == sliceIndex) |> Dict.values |> List.reverse
+                    ( identity, Tuple.first, List.reverse )
+
+        boardSlice : Cells -> List Int
+        boardSlice cells =
+            cells
+                |> Dict.filter (\p _ -> sliceDimension p == sliceIndex)
+                |> Dict.values
+                |> swapSlice
 
         cellSliceCompact : List Int -> List Int
         cellSliceCompact =
@@ -193,32 +199,36 @@ slideCellSlice { cells, size } direction sliceIndex =
                 filledSlice =
                     slice ++ List.repeat (size - compactSize) 0
             in
-                case direction of
-                    SlideLeft ->
-                        filledSlice
-                            |> List.indexedMap (\i n -> ( ( i, sliceIndex ), n ))
+                filledSlice
+                    |> swapSlice
+                    |> List.indexedMap
+                        (\i n ->
+                            ( swapDimensions ( sliceIndex, i ), n )
+                        )
 
-                    SlideRight ->
-                        filledSlice
-                            |> List.reverse
-                            |> List.indexedMap (\i n -> ( ( i, sliceIndex ), n ))
+        cellSliceAdd : List Int -> List Int
+        cellSliceAdd slice =
+            slice
+                |> List.foldl
+                    (\n ( acc, hop ) ->
+                        case acc of
+                            [] ->
+                                ( [ n ], False )
 
-                    SlideUp ->
-                        filledSlice
-                            |> List.indexedMap (\i n -> ( ( sliceIndex, i ), n ))
-
-                    SlideDown ->
-                        filledSlice
-                            |> List.reverse
-                            |> List.indexedMap (\i n -> ( ( sliceIndex, i ), n ))
-
-        --cellSliceAdd slice =
-        --    slice |> listChunk2 0 |> List.foldl (\(a, b) ->
+                            x :: xs ->
+                                if hop || n /= x then
+                                    ( n :: x :: xs, False )
+                                else
+                                    ( (n + n) :: xs, True )
+                    )
+                    ( [], False )
+                |> Tuple.first
+                |> List.reverse
     in
         cells
             |> boardSlice
             |> cellSliceCompact
-            --|> cellSliceAdd
+            |> cellSliceAdd
             |> cellSliceExpand
 
 
@@ -231,7 +241,11 @@ slideCells ({ board } as model) direction =
                 |> List.concat
                 |> Dict.fromList
     in
-        { model | board = { board | cells = cells } }
+        if cells == board.cells then
+            model
+        else
+            { model | board = { board | cells = cells } }
+                |> insertRandomCell
 
 
 init : ( Model, Cmd Msg )
@@ -250,16 +264,16 @@ type Msg
 handleKeyDown : Model -> Keyboard.KeyCode -> Model
 handleKeyDown model keyCode =
     case Char.fromCode keyCode of
-        'J' ->
+        'H' ->
             slideCells model SlideLeft
 
         'L' ->
             slideCells model SlideRight
 
-        'I' ->
+        'K' ->
             slideCells model SlideUp
 
-        'K' ->
+        'J' ->
             slideCells model SlideDown
 
         _ ->
