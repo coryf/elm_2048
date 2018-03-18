@@ -288,6 +288,9 @@ handleKeyDown model keyCode =
         'S' ->
             slideCells model SlideDown
 
+        'R' ->
+            initModel
+
         _ ->
             model
 
