@@ -267,13 +267,25 @@ handleKeyDown model keyCode =
         'H' ->
             slideCells model SlideLeft
 
+        'A' ->
+            slideCells model SlideLeft
+
         'L' ->
+            slideCells model SlideRight
+
+        'D' ->
             slideCells model SlideRight
 
         'K' ->
             slideCells model SlideUp
 
+        'W' ->
+            slideCells model SlideUp
+
         'J' ->
+            slideCells model SlideDown
+
+        'S' ->
             slideCells model SlideDown
 
         _ ->
