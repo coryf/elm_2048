@@ -95,7 +95,14 @@ listGet n xs =
 
 generate2or4 : Random.Generator Int
 generate2or4 =
-    Random.int 1 2 |> Random.map ((*) 2)
+    Random.float 0 1
+        |> Random.map
+            (\p ->
+                if p < 0.9 then
+                    2
+                else
+                    4
+            )
 
 
 openCellList : Cells -> List Point
