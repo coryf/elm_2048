@@ -6,6 +6,7 @@ import Svg.Attributes exposing (..)
 import Keyboard
 import Random
 import Dict exposing (Dict)
+import Array exposing (Array)
 import Char
 import Debug
 
@@ -49,6 +50,7 @@ type alias Board =
 
 type alias Model =
     { board : Board
+    , score : Int
     , gameOver : Bool
     , randomSeed : Random.Seed
     }
@@ -81,6 +83,7 @@ initBoard size =
 initModel : Model
 initModel =
     { board = initBoard 3
+    , score = 0
     , gameOver = False
     , randomSeed = Random.initialSeed 0
     }
@@ -249,11 +252,6 @@ canSlide board =
         |> List.any (\board_ -> board_.cells /= board.cells)
 
 
-boardScore : Board -> Int
-boardScore board =
-    board.cells |> Dict.values |> List.sum
-
-
 handleSlide : Model -> SlideDirection -> Model
 handleSlide ({ board } as model) direction =
     let
@@ -341,6 +339,38 @@ subscriptions model =
 -- VIEW
 
 
+cellDefaultColor : String
+cellDefaultColor =
+    "#eee"
+
+
+cellColors : Array String
+cellColors =
+    Array.fromList
+        [ cellDefaultColor -- 0
+        , "#eee4da" -- 2
+        , "#ede0c8" -- 4
+        , "#f2b179" -- 8
+        , "#f59563" -- 16
+        , "#f67c5f" -- 32
+        , "#f65e3b" -- 64
+        , "#edcf72" -- 128
+        , "#edcc61" -- 256
+        , "#edc850" -- 512
+        , "#edc53f" -- 1024
+        , "#edc22e" -- 2048
+        ]
+
+
+getCellColor : Int -> String
+getCellColor num =
+    let
+        index =
+            num |> toFloat |> logBase 2 |> truncate
+    in
+        Array.get index cellColors |> Maybe.withDefault cellDefaultColor
+
+
 cellView : Int -> Cell -> List (Svg Msg)
 cellView size ( ( pX, pY ), num ) =
     let
@@ -372,7 +402,7 @@ cellView size ( ( pX, pY ), num ) =
             , y (toString y_)
             , width (toString size_)
             , height (toString size_)
-            , fill "#eee"
+            , fill (num |> getCellColor)
             , stroke "#555"
             , strokeWidth "2"
             , rx "8"
@@ -383,21 +413,37 @@ cellView size ( ( pX, pY ), num ) =
             ++ cellText
 
 
-backgroundView : Svg Msg
+backgroundView : List (Svg Msg)
 backgroundView =
-    rect [ fill "#555", x "0", y "0", width "600", height "800" ] []
+    [ rect [ fill "#555", x "0", y "0", width "600", height "800" ] [] ]
 
 
-headerView : Model -> Svg Msg
+headerView : Model -> List (Svg Msg)
 headerView model =
-    let
-        score =
-            boardScore model.board |> toString
-    in
-        text_ [ x "100", y "100" ] [ text score ]
+    [ rect
+        [ fill "#ddd"
+        , stroke "#555"
+        , x "2"
+        , y "2"
+        , width "596"
+        , height "196"
+        , strokeWidth "2"
+        , rx "8"
+        , ry "8"
+        ]
+        []
+    , text_
+        [ x "100"
+        , y "100"
+        , fontSize "48"
+        , textAnchor "left"
+        , alignmentBaseline "middle"
+        ]
+        [ text (model.score |> toString) ]
+    ]
 
 
-boardView : Board -> Svg Msg
+boardView : Board -> List (Svg Msg)
 boardView { size, cells } =
     let
         squareSize =
@@ -406,7 +452,7 @@ boardView { size, cells } =
         cellElems =
             cells |> Dict.toList |> List.map (cellView squareSize) |> List.concat
     in
-        g [ transform "translate(0 200)" ] cellElems
+        [ g [ transform "translate(0 200)" ] cellElems ]
 
 
 gameOverView : Bool -> List (Svg Msg)
@@ -421,9 +467,8 @@ gameOverView gameOver =
 view : Model -> Html Msg
 view model =
     svg [ width "100%", height "100%", viewBox "0 0 600 800" ]
-        ([ backgroundView
-         , headerView model
-         , boardView model.board
-         ]
+        (backgroundView
+            ++ headerView model
+            ++ boardView model.board
             ++ gameOverView model.gameOver
         )
